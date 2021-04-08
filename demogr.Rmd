@@ -1,0 +1,1178 @@
+---
+title: "Demography final project"
+author: "`r Sys.info()['user']` aka Egor Shmidt"
+date: "`r Sys.Date()`"
+output: 
+  tint::tintHtml:
+    toc: true
+    number_sections: false
+    highlight: pygments
+link-citations: yes
+---
+```{css not working, echo = FALSE}
+<style>
+  a:link {
+    color: rgb(0.3,0.3,0.6);
+    background-color: transparent;
+    text-decoration: none;
+  }
+</style>
+```
+
+```{css, echo = FALSE}
+.Code {
+  # resize: horizontal;
+  # overflow:visible;
+  background-color: rgb(240, 240, 240);
+  width: 700px;
+  border: 2px rgb(204, 204, 204)
+}
+```
+
+```{r theme ggplot, echo=FALSE}
+library(ggplot2)
+
+#### Thanks Benjamin for this useful and working theme
+# https://benjaminlouis-stat.fr/en/blog/2020-05-21-astuces-ggplot-rmarkdown/
+
+theme_ben <- function(base_size = 14) {
+  theme_bw(base_size = base_size) %+replace%
+    theme(
+      # L'ensemble de la figure
+      plot.title = element_text(size = rel(1), face = "bold", margin = margin(0,0,5,0), hjust = 0),
+      # Zone oÐ“â„– se situe le graphique
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      # Les axes
+      axis.title = element_text(size = rel(0.85), face = "bold"),
+      axis.text = element_text(size = rel(0.70), face = "bold"),
+      axis.line = element_line(color = "black", arrow = arrow(length = unit(0.3, "lines"), type = "closed")),
+      # La lÐ“Â©gende
+      legend.title = element_text(size = rel(0.85), face = "bold"),
+      legend.text = element_text(size = rel(0.70), face = "bold"),
+      legend.key = element_rect(fill = "transparent", colour = NA),
+      legend.key.size = unit(1.5, "lines"),
+      legend.background = element_rect(fill = "transparent", colour = NA),
+      # Les Ð“Â©tiquettes dans le cas d'un facetting
+      strip.background = element_rect(fill = "#17252D", color = "#17252D"),
+      strip.text = element_text(size = rel(0.85), face = "bold", color = "white", margin = margin(5,0,5,0))
+    )
+  # Changing the default theme
+}
+
+theme_set(theme_ben())
+```
+
+
+```{r setup, include=FALSE}
+library(tint)
+# invalidate cache when the package version changes
+knitr::opts_chunk$set(tidy = FALSE, cache.extra = packageVersion('tint'),
+                      class.source = "Code", progress = TRUE,
+                      echo = FALSE, warning = FALSE, comment = FALSE, message = FALSE, fig.width=11, fig.height = 7)
+options(htmltools.dir.version = FALSE)
+```
+
+# Start here
+In this project, I will try to report on the demographic situation in the Samara region from 1990 up to 2019. This project might be valuable for policymakers as it might help make more informant decisions on managing [pricy demographic projects](https://tass.ru/nacionalnye-proekty/6264829) like national project "Demography". We start with overviewing changes in the population structure, next we move to age-specific mortality, fertility, and life expectancy changes from 1990 till 2019. In the final part, we try to decompose the mortality rates and life expectancy by the reason of death.
+
+## Population change from 1970 to 2019
+
+```{r, echo = FALSE, warning=FALSE, comment=FALSE, fig.width=10}
+setwd("C:/Users/Proksenia/Documents")
+library(tidyverse)
+library(purrr)
+library(reshape2)
+library(data.table)
+library(popEpi)
+library(broom)
+library(openxlsx)
+library(DemoDecomp)
+library(gridExtra)
+
+db69 <- read.delim("PopDC5a1969-1989.txt", sep = ",") %>% 
+  filter(Reg == 1136)
+
+db89 <- read.delim("PopDa1989-2014.txt", sep = ",") %>% 
+  filter(Reg == 1136)
+
+db89[,-c(1:4)] <- sapply(db89[,-c(1:4)], function(x) {
+  as.numeric(as.character(x))
+})
+
+db15 <- read.delim("PopDa2015-2019.txt", sep = ",") %>% 
+  filter(Reg == 1136)
+
+db15[,-c(1:5)] <- sapply(db15[,-c(1:5)], function(x) {
+  as.numeric(as.character(x))
+})
+
+# Population size overall
+
+pop_size_89 <- db89 %>%
+  mutate(pop_per = apply(.[,-c(1:5)], 1, sum),
+         Year = as.numeric(as.character(Year))) %>%
+  select(Year, pop_per, Sex, Group) %>%
+  filter(Sex == "B", Group == "T") %>% 
+  group_by(Year) %>% 
+  summarise(pop = sum(pop_per), .groups = 'drop')
+
+pop_size_69 <- db69 %>%
+  mutate(pop_per = apply(.[,-c(1:3)], 1, sum)) %>% 
+  dplyr::select(Year, pop_per, Sex) %>%
+  group_by(Year) %>% 
+  summarise(pop = sum(pop_per), .groups = 'drop')
+  
+pop_size_15 <- db15 %>% 
+  mutate(pop_per = apply(.[,-c(1:5)], 1, sum)) %>%
+  select(Year, pop_per, Sex, Group) %>%
+  filter(Sex == "B", Group == "T") %>% 
+  group_by(Year) %>% 
+  summarise(pop = sum(pop_per), .groups = 'drop')
+
+pop_69_19 <- rbind(pop_size_69[c(1,2),], pop_size_89, pop_size_15)
+
+scale_pop19 <- c("0", "1-4", "5-9", "10-14", "15-19", "20-24", "25-29", 
+                 "30-34", "35-39", "40-44", "45-49", "50-54", "55-59",
+                 "60-64", "65-69", "70-74", "75-79", "80-84", "85+")
+
+
+# Task 1.1 results
+
+ggplot(pop_69_19, aes(Year, pop)) +
+  geom_point(color = '#69b3a2', fill = "white", size =2) +
+  geom_line(linetype = "dashed", color = "#69b3a2", size = 1) +
+  scale_y_continuous(name = "Pop size")
+```
+
+By looking at the average annual population size we can see the drastic increase in the period from 1970 till 1989. In 1990 the procedure of collecting information about population size has been changed that's why we see the disruption in growth. As far as I know previously it was based on surveys, but now it's collected more regularly and from other sources. Population size reached its peak in 1996 and now it's in a prolonged decline. The next question we would like to answer what contributed to this decrease? To answer this question we can look at the annual population growth rate and what contributes to it.
+
+```{r}
+rates <- data.frame(Year = 2000:2019, rate_m = c(3.76, 1.54, 1.42, 4.54, 4.90, 6.51, 5, 3.64, 3.95, 3.14, 1.89, 2.56, 1.56, 1.33, 2.19, -0.64, 0.62, -0.28, -0.13, 2.81), rate_n = c(-8.5, -8.2, -7.1, -6.6, -6.1, -6.4, -5.6, -4.6, -3.7, -3.3, -3.6, -2.9, -1.8, -2, -1.7, -1.4, -1.4, -2.9, -3.1, -3.9))
+
+library(lubridate)
+
+rates %>% 
+  mutate(Year = as.character(Year), rate_t = rate_m + rate_n) %>% 
+  ggplot(., aes(x = Year)) +
+  geom_bar(aes(y = rate_m, fill = "Net migration rate"), stat = "identity", alpha = 0.8) +
+  geom_bar(aes(y = rate_n, fill = "Rate of natural increase"),
+           stat = "identity", position = "stack", alpha = 0.8) +
+  geom_line(aes(y = rate_t, group = 1, fill = "Population growth rate"),
+            stat = "identity", linetype = "dashed") +
+  geom_point(aes(y = rate_t), stat = "identity", col = "black", fill = "white", size = 1) +
+  scale_y_continuous(limits = c(-10, 10)) +
+  guides(color = guide_legend(override.aes = list(fill = "white"))) +
+  labs(fill = "", y = "Rate for 1000 people") +
+  scale_fill_manual(values = c("Net migration rate" = "#69b3a2", "Rate of natural increase" = "#fc8d62", "Population growth rate" = "black"))
+  
+# ethn_sos <- as.data.frame(Nationality = c("Ðóññêèå", "Òàòàðû", "×óâàøè", "Ìîðäâà", "Óêðàèíöû",
+#                                           "Àðìÿíå", "Êàçàõè", "Àçåðáàéäæàíöû", "Óçáåêè")
+```
+
+As we can see the main contributor to the increase in population size is due to net migration, but a natural increase in the population remains below zero for the whole period. The rate of natural decline is higher than the positive rate of net migration. Due to only recent shrinkage of natural decline, I think in the 1990's the population size was rising mostly from net migration, even if we look back at the increase in population size in the 1980s and especially in 1970s these increase is rather drastic and doesn't look natural together(I mean population increased by more than 10% from 1970s to 1980s). I assume that net migration has played important role in population size changes for the whole period from the 1970s till the 2010s.
+
+## Population pyramid based on the *complete* data
+```{r, fig.cap = "Wikipedia suggests 45.7% of males and 54.3% of females overall in 2016"}
+
+fm19 <- db15[,-2] %>%
+  filter(Year == 2019,
+         Sex != "B",
+         Group == "T") %>%
+  select(-Year, -Group) %>% 
+  group_by(Sex) %>% 
+  summarise_all(sum) %>%
+  ungroup() %>% 
+  melt()
+
+fm19$variable <- as.numeric(str_replace(fm19$variable, "PopDa", ""))
+
+fm19$value <- ifelse(fm19$Sex == "M", -1 * fm19$value, fm19$value)
+
+# Task 1.2 results
+
+ggplot(fm19, aes(x = variable, y = value, color = Sex, fill = Sex)) +
+  geom_bar(data = subset(fm19, Sex == "F"), stat = "identity", fill = "#fc8d62",
+           color = "#fc8d62", alpha = 0.8) + 
+  geom_bar(data = subset(fm19, Sex == "M"), stat = "identity", fill = "#69b3a2",
+           color = "#69b3a2", alpha = 0.8) +
+  coord_flip() +
+  scale_x_continuous(name = "Age") +
+  scale_y_continuous(name = "Number of persons", breaks = seq(-30000, 30000, by = 5000),
+                     labels = c(seq(30000, 0, by = -5000), seq(5000, 30000, by = 5000)))
+```
+
+The population pyramid shows the age structure of the Samara region population. We see the wavy pattern these are due to previous external causes like crisis and wars. We also can see that till like 35 years the share of women and men are almost the same. But there is a much large difference between the share of men and women after 50 years. 
+
+## Changes in dependency ratio from 1990 to 2019
+```{r, fig.cap = "I considered youth are those who is under 15 and elder who is above 60."}
+# Task 1.3(1)
+
+#### Median age function from vector of years and vector of frequencies
+  GroupedMedian_5 <- function(frequencies, intervals, sep = NULL, trim = NULL) {
+    # If "sep" is specified, the function will try to create the
+    #   required "intervals" matrix. "trim" removes any unwanted
+    #   characters before attempting to convert the ranges to numeric.
+    if (!is.null(sep)) {
+      if (is.null(trim)) pattern <- ""
+      else if (trim == "cut") pattern <- "\\[|\\]|\\(|\\)"
+      else pattern <- trim
+    }
+  
+    cf <- cumsum(frequencies)
+    Midrow <- findInterval(max(cf)/2, cf)
+    L <- intervals[Midrow]      # lower class boundary of median class
+    h <- 5                      # size of median class
+    cf2 <- cf[Midrow]           # cumulative frequency class before median class
+    cf3 <- cf[Midrow + 1]       # frquencies in the meidan class
+    n_2 <- max(cf)/2            # total observations divided by 2
+  
+    unname(L + ((n_2 - cf2) / (cf3 - cf2)) * h)
+  }
+  
+  GroupedMedian_1 <- function(frequencies, intervals, sep = NULL, trim = NULL) {
+    # If "sep" is specified, the function will try to create the
+    #   required "intervals" matrix. "trim" removes any unwanted
+    #   characters before attempting to convert the ranges to numeric.
+    if (!is.null(sep)) {
+      if (is.null(trim)) pattern <- ""
+      else if (trim == "cut") pattern <- "\\[|\\]|\\(|\\)"
+      else pattern <- trim
+    }
+    
+    cf <- cumsum(frequencies)
+    Midrow <- findInterval(max(cf)/2, cf)
+    L <- intervals[Midrow]      # lower class boundary of median class
+    h <- 1                      # size of median class
+    cf2 <- cf[Midrow]           # cumulative frequency class before median class
+    cf3 <- cf[Midrow + 1]       # frquencies in the meidan class
+    n_2 <- max(cf)/2            # total observations divided by 2
+    
+    unname(L + ((n_2 - cf2) / (cf3 - cf2)) * h)
+  }
+####
+
+lmed_69 <- db69 %>%
+  filter(Year != 1989) %>%
+  select(-Reg, -Sex) %>% 
+  reshape2::melt(., id = 1) %>% 
+  group_by(Year, variable) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(variable = as.numeric(str_replace(variable, "Pdc", ""))) %>%
+  droplevels() %>%
+  setDT() %>%
+  split(., by = c("Year"))
+
+lmed_15 <- db15 %>%
+  filter(Group == "T" & Sex == "B") %>% 
+  select(-Reg, -Sex, -Group) %>% 
+  reshape2::melt(., id = 1) %>% 
+  group_by(Year, variable) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(variable = as.numeric(str_replace(variable, "PopDa", "")), Year = as.factor(Year)) %>%
+  droplevels()
+
+
+lmed_89 <- db89 %>%
+  filter(Group == "T" & Sex == "B") %>% 
+  select(-Reg, -Sex, -Group) %>% 
+  reshape2::melt(., id = 1) %>% 
+  group_by(Year, variable) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(variable = as.numeric(str_replace(variable, "PopDa", "")), Year = as.factor(Year)) %>%
+  droplevels() %>%
+  rbind(., lmed_15) %>% 
+  setDT() %>% 
+  split(., by = c("Year"))
+
+#### Median ages
+
+# for (i in 1:length(lmed_69)) {
+#   GroupedMedian_5(lmed_69[[i]][[3]], lmed_69[[i]][[2]]) %>% print()
+# }
+# 
+# for (i in 1:length(lmed_89)) {
+#   GroupedMedian_1(lmed_89[[i]][[3]], lmed_89[[i]][[2]]) %>% print()
+# }
+
+dependencies <- function(frequencies, intervals, low_d = 15, high_d = 60) {
+  elder <- sum(frequencies[which(intervals == high_d):length(intervals)])
+  youth <- sum(frequencies[1:which(intervals == low_d)])
+  working <- sum(frequencies[-c(1:which(intervals == low_d), which(intervals == high_d):length(intervals))])
+  tibble(old_dep = elder/working, you_dep = youth/working, tot_dep = (elder + youth)/working)
+}
+
+##### DEPENDENCIES AND MEDIAN AGE FOR 70 AND 79
+dep_69 <- NULL
+med_age <- NULL
+for (i in 1:length(lmed_69)) {
+  dep_69 <- rbind(dep_69, dependencies(lmed_69[[i]][[3]], lmed_69[[i]][[2]]))
+  med_age[[i]] <- GroupedMedian_5(lmed_69[[i]][[3]], lmed_69[[i]][[2]])
+}
+
+dep_69 <- cbind(dep_69, unlist(med_age))
+######
+
+##### DEPENDENCIES AND MEDIAN AGE FOR 89 : 19
+dep_89 <- NULL
+med_age <- NULL
+for (i in 1:length(lmed_89)) {
+  dep_89 <- rbind(dep_89, dependencies(lmed_89[[i]][[3]], lmed_89[[i]][[2]]))
+  med_age[[i]] <- GroupedMedian_1(lmed_89[[i]][[3]], lmed_89[[i]][[2]])
+}
+
+dep_89 <- cbind(dep_89, unlist(med_age))
+#####
+
+##### Total dependencies and median ages! woohhooo!
+
+dep_total <- rbind(dep_69, dep_89)
+dep_total <- cbind(Year = pop_69_19$Year, dep_total)
+
+#####
+
+#### Task 1.3 and 1.4
+dep_total %>%
+    reshape2::melt(., id = c("Year", "unlist(med_age)")) %>%
+  ggplot(., aes(Year, value, col = variable)) + 
+    geom_line(linetype = "dashed", size = 1) + 
+    geom_point(size = 1.5) +
+    scale_y_continuous(name = "Dependency ratio") +
+    scale_color_discrete(name = "Type", labels = c("Elder dependency", "Youth dependency", "Total dependency")) +
+  scale_color_manual(values = c("#fc8d62", "#69b3a2", "#a6d854"))
+```
+
+From this graph, we see that the dependency ratio is rather low which means, that the population is mostly represented by people of their working ages. Interestingly, before 2000 there were more younger people than the elder, but now it's the opposite and now the difference between them seems to get larger again.
+
+## Median age from 1990 to 2019
+```{r}
+ggplot(dep_total, aes(Year, `unlist(med_age)`)) + 
+  geom_line(linetype = "dashed", col = "#69b3a2", fill = "#69b3a2", size =1) +
+  geom_point(stat = "identity", col = "#69b3a2", fill = "white", size = 1.5) +
+  scale_y_continuous(name = "Median age population")
+
+```
+
+Median age tells us the same idea that the population is getting older.
+
+```{r}
+dead_af <- function(string1, string2, group, sex) {
+  death_89 <- read.delim(string1, sep = ",") %>% 
+    filter(Reg == 1136, Year != 1989, Group == group, Sex == sex)
+  
+  death_89[,-c(2:4)] <- sapply(death_89[,-c(2:4)], function(x) {
+    as.numeric(as.character(x))
+  })
+  
+  death_15 <- read.delim(string2, sep = ",") %>% 
+    filter(Reg == 1136, Group == group, Sex == sex)
+  
+  death_15[,-c(2:4)] <- sapply(death_15[,-c(2:4)], function(x) {
+    as.numeric(as.character(x))
+  })
+  
+  return(rbind(death_89, death_15)[,-c(2:4)])
+}
+
+dead_90_19 <- dead_af("DRa1989-2014.txt", "DRa2015-2019.txt", "T", "B")
+
+dead_90_19m <- dead_af("DRa1989-2014.txt", "DRa2015-2019.txt", "T", "M")
+
+dead_90_19f <- dead_af("DRa1989-2014.txt", "DRa2015-2019.txt", "T", "F")
+
+pop_90_19 <- dead_af("PopDa1989-2014.txt", "PopDa2015-2019.txt", "T", "B")
+
+pop_90_19m <- dead_af("PopDa1989-2014.txt", "PopDa2015-2019.txt", "T", "M")
+
+pop_90_19f <- dead_af("PopDa1989-2014.txt", "PopDa2015-2019.txt", "T", "F")
+
+```
+
+## Age specific mortality patterns
+```{r}
+dead_90_19 %>% 
+  reshape2::melt(., id = "Year") %>%
+  mutate(value = log(value),
+         variable = as.numeric(as.character(str_replace(variable, "Dra", ""))),
+         Year = as.factor(Year)) %>% 
+  ggplot(., aes(x = variable, y = value)) +
+    geom_line(aes(color = Year), size = 1.3) +
+    scale_color_viridis_d(alpha = 0.7, name = "") +
+    scale_x_continuous(name = "Age") +
+    scale_y_continuous(name = "Log(ASDR)")
+```
+
+In this graph we can try to compare mortality rates at different ages, moreover we can compare these mortality patterns for different time periods. Firstly, we see that the highest variability is in mortality patterns of younger ages, which means that most changes through the years were in these ages. In all years except the '30s, yellowish lines are below the rest which refers to recent 2015+ years, this could be interpreted as we overall improving our mortality rate. At the end of the graph, we see some kind of hook which doesn't lie in the pattern before, as far as I remember this is a signal of not reported deaths(but I'm not sure:)).
+
+## Age specific fertility patterns (all births combined)
+```{r}
+bra_89 <- read.delim("BRa1989-2014.txt", sep = ",") %>% 
+  filter(Reg == 1136, Year != 1989, Group == "T")
+
+bra_89[,-c(2:3)] <- sapply(bra_89[,-c(2:3)], function(x) {
+  as.numeric(as.character(x))
+})
+
+bra_15 <- read.delim("BRa2015-2019.txt", sep = ",") %>% 
+  filter(Reg == 1136, Group == "T")
+
+bra_15[,-c(2:3)] <- sapply(bra_15[,-c(2:3)], function(x) {
+  as.numeric(as.character(x))
+})
+
+# bra_90_19<- 
+  rbind(bra_89, bra_15)[,-c(2:3)] %>% 
+  reshape2::melt(., id = "Year") %>% 
+  mutate(variable = as.numeric(str_replace(variable, "Bra", "")), Year = as.factor(Year)) %>% 
+  droplevels() %>% 
+  ggplot(., aes(variable, value / 1000, fill = Year)) +
+    geom_line(aes(color = Year), size = 1.3) +
+    scale_color_viridis_d(alpha = 0.7, name = "") +
+    scale_x_continuous(name = "Age of mother") +
+    scale_y_continuous(name = "Overall births per 1000 women")
+    
+```
+
+From this graph, we can see the transformation of the fertility pattern that was happing in our period. In the 1990s women tend to give birth at younger ages with the highest rate at 21, but they were giving birth in a shorter time frame. Through the late 1990s and early 2000s, this pattern was transformed to a more bell shaped with the highest fertility rate at ages 27-28, but this rate is much lower than before. However, the time frame of giving birth is getting larger, which means that the overall fertility rate might stay more or less the same. This might support the argument that the increase in population size in the '90s was mostly due to net migration because the fertility rate looks like only slightly decreased(my conclusion is based on visual representation, I think it's still better to check real numbers).
+
+## Age specific fertility patterns by birth order in 2019
+```{r}
+brao_15 <- read.delim("BRao2015-2019.txt", sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Year == 2019) %>% 
+  select(-Reg, -Group, -Year)
+
+brao_15 <- sapply(brao_15, function(x) {
+  as.numeric(as.character(x))
+})
+
+brao_15 <- reshape2::melt(brao_15) %>% mutate(cycle = row.names(.))
+
+brao_15$cycle <- ifelse(grepl("BrOA", brao_15$cycle), "Overall",
+                        ifelse(grepl("BrO1", brao_15$cycle), "First", 
+                               ifelse(grepl("BrO2", brao_15$cycle), "Second", 
+                                      ifelse(grepl("BrO3", brao_15$cycle), "Third", 
+                                             ifelse(grepl("BrO4", brao_15$cycle), "Fourth", "Fifth+"
+                                                    )))))
+brao_15$cycle <- factor(brao_15$cycle, levels = c("Overall", "First", "Second"
+                                                  , "Third", "Fourth", "Fifth+"))
+brao_15$age <- rep(15:55)
+
+brao_15 %>% group_by(cycle) %>% 
+  summarize(sum(value)/1000000) %>% view()
+
+
+brao_15 %>% ggplot(., aes(age, value / 1000)) +
+  geom_line(aes(color = cycle), size = 1.3) +
+  scale_color_viridis_d(name = "Birth number", alpha = 0.7) +
+  scale_x_continuous(name = "Age of mother") +
+  scale_y_continuous(name = "Number of births per 1000 women")
+```
+
+# Mortality & life expectancy part
+
+In the next part, we will focus on the theme of mortality. Changes in mortality helps us evaluate the effectiveness of policy interventions in health-related programs, by comparing our current mortality rates and causes of death with the one before in 1990. 
+
+## Crude death rate (CDR) per 1000 persons for males and females
+
+```{r}
+crd_m <- NULL
+for (i in 1:nrow(dead_90_19m)) {
+  crd_m[i] <- sum((dead_90_19m[i,-1] * (pop_90_19m[i, -1] / sum(pop_90_19m[i, -1]))) / 1000)
+}
+
+crd_f <- NULL
+for (i in 1:nrow(dead_90_19f)) {
+  crd_f[i] <- sum((dead_90_19f[i,-1] * (pop_90_19f[i, -1] / sum(pop_90_19f[i, -1]))) / 1000)
+}
+
+crd_dth <- cbind(crd_f, crd_m, Year = c(1990:2019))
+
+crd_dth_molten <- reshape2::melt(as.tibble(crd_dth), id = list("Year"))
+
+crd_dth_molten %>% ggplot(., aes(x = Year, y = value)) +
+  geom_line(aes(col = variable), linetype = "dashed", size = 1) +
+  geom_point(aes(col = variable), size = 1.5) +
+  scale_y_continuous(name = "Crude death rate") +
+  scale_color_discrete(name = "Sex", labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#fc8d62", "#69b3a2"))
+```
+
+Crude death rate tells us the number of people who died in this year per 1000 people. From this graph, we can see that during the 1990s the death rate largely increased especially for men. The death rate is discontinuous in these years, which means some external factors forced the death rate to change its direction. CDR peaked around 2000 and 2002, after that, it started to decrease and now it's around 14 CDR for men and 12 CDR for women. It's still far from values in 1990. 
+
+## Age-standardized death rate (SDR) per 1000 persons for males and females
+```{r, fig.margin = TRUE}
+ggplot(fm19, aes(x = variable, y = value, color = Sex, fill = Sex)) +
+  geom_bar(data = subset(fm19, Sex == "F"), stat = "identity", fill = "#fc8d62",
+           color = "#fc8d62", alpha = 0.8) + 
+  geom_bar(data = subset(fm19, Sex == "M"), stat = "identity", fill = "#69b3a2",
+           color = "#69b3a2", alpha = 0.8) +
+  coord_flip() +
+  scale_x_continuous(name = "Age") +
+  scale_y_continuous(name = "Number of persons", breaks = seq(-30000, 30000, by = 5000),
+                     labels = c(seq(30000, 0, by = -5000), seq(5000, 30000, by = 5000)))
+```
+```{r, fig.cap = "CDR is useful for knowing the pure values, but for comparison it's common to use Standardized death rates, as it places men and women in the same age structure. It would be hard to compare them using one we saw in the pyramid graph."}
+#### ST DEATH RATE FOR 1990-2019 ON 1000
+# stdpop101 is from package popEpi
+#### ST DEATH RATE FOR {1}Males and {2}Females 1990-2019 ON 1000
+
+std_ages <- as.data.frame(t(stdpop101))
+## Males
+std_m_rt <- NULL
+for (i in 1:nrow(dead_90_19m)) {
+  std_m_rt[i] <- sum((dead_90_19m[i,-1] * (std_ages[1,] / sum(std_ages[1,]))) / 1000)
+}
+
+## Females
+std_f_rt <- NULL
+for (i in 1:nrow(dead_90_19f)) {
+  std_f_rt[i] <-  sum((dead_90_19f[i,-1] * (std_ages[1,] / sum(std_ages[1,]))) / 1000)
+}
+
+std_dth <- cbind(std_f_rt, std_m_rt, Year = c(1990:2019))
+
+std_dth_molten <- reshape2::melt(as.tibble(std_dth), id = list("Year"))
+
+std_dth_molten %>% ggplot(., aes(x = Year, y = value)) +
+  geom_line(aes(col = variable), linetype = "dashed", size = 1) +
+  geom_point(aes(col = variable), size = 1.5) +
+  scale_y_continuous(name = "Standardized death rate") +
+  scale_color_discrete(name = "Sex", labels = c("Female", "Male")) +
+  scale_color_manual(values = c("#fc8d62", "#69b3a2"))
+```
+
+Age-standardized death rates show us that the gap between men's and women's death rates is much wider. However, I said that we are still far from values in 1990, but in this graph, we actually have a lower value in 2019, which means that CDR might be higher, but nowadays we have a much more elder population and current death rates are actually relatively lower than it's used to be.
+
+```{r functioning}
+life.table = function (age, mx, ax, x.max) {
+  x.max = x.max + 1
+  qx = px = lx = dx = Lx = Tx = ex =rep(0,length(mx))
+  n = c(diff(age), 1)
+  for (i in 1:x.max -1){
+    # Death Probabilities between ages x and x+n
+    qx[i] = (n[i]*mx[i])/(1+(n-ax[i])*mx[i])
+  }
+  # Death Probability for the last group  
+  qx[x.max] = 1
+  for (i in 1:x.max){
+  # Survival probability between ages x and x+n
+    px[i] = 1-qx[i]
+  }
+  
+  # Survivors at age x
+  lx[1] = 100000
+  for (i in 1:(x.max -1)){
+    lx[i+1] = lx[i]*px[i]
+  }
+  # Deaths between ages x and x+n
+  dx = lx * qx
+  # Person-Years lived between ages x and x+n
+  for (i in 1:x.max -1){
+    Lx[i] = lx[i+1]*n[i] + n[i]*ax[i]*dx[i]
+  }
+  Lx[x.max] = lx[x.max]/mx[x.max]
+  # Person-Years lived above age x
+  for (i in 1:x.max ){
+    Tx[i] = sum(Lx[i:x.max])
+  }
+  # Life expectancy at age x
+  for (i in 1:x.max -1){
+    ex[i] = Tx[i]/lx[i]
+  }
+  ex[x.max] = ax[x.max]
+  lifetable = data.frame(Age=age,nmx= mx,nax=ax,
+                         nqx=round(qx,5),lx=round(lx,2),
+                         ndx=round(dx,2), nLx=round(Lx,2),
+                         Tx=round(Tx,2), ex=round(ex,2))
+  return(lifetable)
+}
+
+dth_fun <- function(data) {
+dth_tbl  <- data %>% 
+  reshape2::melt(., id = "Year") %>% 
+  mutate(variable = as.numeric(as.character(str_replace(variable, "Dra", ""))), value = value/1000000)
+
+dth_tbl$ax <- ifelse(dth_tbl$variable == 0, 0.14903 - (2.05527*dth_tbl$value), 
+                     ifelse(dth_tbl$variable == 100,1 / dth_tbl$value, 0.5))
+
+dth_tbl$ax <- ifelse(is.infinite(dth_tbl$ax), NA, dth_tbl$ax)
+
+dth_tbl <- dth_tbl %>% 
+  setDT() %>% 
+  split(., by = c("Year"))
+
+test_LT <- lapply(dth_tbl, function(x) {
+  life.table(x[[2]], x[[3]], x[[4]], 100) ### Last element used to be 100, but we removed some NA's
+  })
+}
+
+dth_tbl_m <- dth_fun(dead_90_19m)
+dth_tbl_f <- dth_fun(dead_90_19f)
+```
+
+```{r, fig.width=10, fig.height=4, fig.fullwidth=TRUE}
+lf_exp <- function(data) {
+  x <- data.frame()
+  for (i in 1:30) {
+    data[i][[1]] %>% 
+      filter(Age %in% c(0, 60)) %>% 
+      select(Age, ex) %>% 
+      rbind(x, .) -> x
+  }
+  x <- cbind(Year = rep(1990:2019, each = 2), x)
+  return(x)
+}
+
+lf_both_m <- lf_exp(dth_tbl_m)
+lf_both_f <- lf_exp(dth_tbl_f)
+
+pm0 <- lf_both_m %>% 
+  filter(Age == 0) %>% 
+  ggplot(., aes(Year, ex)) +
+    geom_point(color = 'steelblue', fill = "white", size =1.5) +
+    geom_line(linetype = "dashed", color = "steelblue", size = 1) +
+    scale_y_continuous(name = "Life expectancy") +
+    labs(title = "Life expectancy at birth",
+         subtitle = "Male:")
+
+pm60 <- lf_both_m %>% 
+  filter(Age == 60) %>% 
+  ggplot(., aes(Year, ex)) +
+    geom_point(color = 'steelblue', fill = "white", size =1.5) +
+    geom_line(linetype = "dashed", color = "steelblue", size = 1) +
+    scale_y_continuous(name = "Life expectancy") +
+    labs(title = "Life expectancy at 60",
+         subtitle = "Male:")
+
+fm0 <- lf_both_f %>% 
+  filter(Age == 0) %>% 
+  ggplot(., aes(Year, ex)) +
+    geom_point(color = '#fc8d62', fill = "white", size =1.5) +
+    geom_line(linetype = "dashed", color = "#fc8d62", size = 1) +
+    facet_wrap(. ~ Age, scales = "free") +
+    scale_y_continuous(name = "Life expectancy") +
+    labs(title = "Life expectancy at birth",
+         subtitle = "Female:") +
+    scale_color_manual(values = "#fc8d62")
+
+fm60 <- lf_both_f %>% 
+  filter(Age == 60) %>% 
+  ggplot(., aes(Year, ex)) +
+    geom_point(color = '#fc8d62', fill = "white", size =1.5) +
+    geom_line(linetype = "dashed", color = "#fc8d62", size = 1) +
+    facet_wrap(. ~ Age, scales = "free", ) +
+    scale_y_continuous(name = "Life expectancy") +
+    labs(title = "Life expectancy at 60",
+         subtitle = "Female:") +
+    scale_color_manual(values = "#fc8d62")
+
+grid.arrange(pm0, fm0, nrow = 1)
+grid.arrange(pm60, fm60, nrow = 1)
+```
+
+The graphs above try to compare life expectancy for men and women at birth and 60, but actually, there is nothing to compare as the line pattern is the same. What does it tell us? It means that there were no interventions or any other external causes that affected primarily only one sex.
+
+```{r}
+lf_prob <- function(data) {
+  x <- data.frame()
+  for (i in 1:30) {
+    data[i][[1]] %>% 
+      filter(Age %in% seq(20, 60)) %>% 
+      select(Age, lx) %>%
+      mutate(prob_surv = lx / .$lx[1]) %>% 
+      rbind(x, .) -> x
+  }
+  x <- cbind(Year = rep(1990:2019, each = 41), x)
+  return(x)
+}
+
+lf_prob_whl_m<- lf_prob(dth_tbl_m)
+lf_prob_whl_f<- lf_prob(dth_tbl_f)
+
+ggplot(lf_prob_whl_m, aes(Age, prob_surv, group = Year)) +
+  geom_line(aes(col = Year), size = 1.3) +
+  scale_color_viridis_c(alpha = 0.7) +
+  scale_y_continuous(name = "Probability to survive") +
+  labs(title = "Probability to survive for males from 20 to 60 years old")
+
+ggplot(lf_prob_whl_f, aes(Age, prob_surv, group = Year)) +
+  geom_line(aes(col = Year), size = 1.3) +
+  scale_color_viridis_c(alpha = 0.7) +
+  scale_y_continuous(name = "Probability to survive", limits = c(0.5, 1)) +
+  labs(title = "Probability to survive for females from 20 to 60 years old")
+```
+
+These fancy graphs try to show how large the difference in life expectancy for men and women. At some point, the probability to survive from 20 to 60 for men was close to the flip of the coin.
+
+```{r}
+coll_dth_rsn <- function(string1, string2, string3, string4, string5, gen) {
+dth_rsn_15_m <- read.delim(string1, sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Sex == gen) %>%
+  select(-c(Reg, Group, Sex, CCl))
+
+dth_rsn_11_m <- read.delim(string2, sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Sex == gen) %>%
+  select(-c(Reg, Group, Sex, CCl))
+
+dth_rsn_06_m <- read.delim(string3, sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Sex == gen, Year %in% c(2006:2010)) %>%
+  select(-c(Reg, Group, Sex, CCl))
+
+dth_rsn_99_m <- read.delim(string4, sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Sex == gen) %>%
+  select(-c(Reg, Group, Sex, CCl))
+
+dth_rsn_89_m <- read.delim(string5, sep = ",") %>% 
+  filter(Reg == 1136, Group == "T", Sex == gen, Year != 1989) %>%
+  select(-c(Reg, Group, Sex, CCl))
+
+dth_rsn <- rbind(dth_rsn_89_m, dth_rsn_99_m, dth_rsn_06_m, dth_rsn_11_m, dth_rsn_15_m)
+return(dth_rsn)
+}
+
+dth_rsn_m <- coll_dth_rsn("DRc5a2015-2019.txt","DRc5a2011-2014.txt","DRc5a2006-2012.txt",
+                          "DRc5a1999-2005.txt","DRc5a1989-1998.txt", "M")
+
+dth_rsn_f <- coll_dth_rsn("DRc5a2015-2019.txt","DRc5a2011-2014.txt","DRc5a2006-2012.txt",
+                          "DRc5a1999-2005.txt","DRc5a1989-1998.txt", "F")
+test <- read.xlsx("diseases.xlsx", colNames = TRUE) %>% 
+  mutate(code = as.numeric(code))
+
+std_pop20 <- c(0.016, 0.064, rep(0.07, times = 10), 0.06, 0.05, 0.04, 0.03, 0.02, 0.01, 0.01)
+```
+
+## Trends in SDR fromcauses of death in 1990-2018 for males and females
+```{r}
+####### MEN
+dth_rsn_m <- merge(dth_rsn_m, test, by.x = "Cause", by.y = "code")
+
+dth_rsn_m[,-c(1,2,22)] <- sapply(dth_rsn_m[,-c(1,2,22)], function(x) {
+  as.numeric(as.character(x))
+})
+
+dth_classrsn_m_3 <- dth_rsn_m %>%
+  filter(Year %in% 2011:2018) %>%
+  filter(!(Cause %in% c(246:255, 306))) %>% 
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:53, "Infection disease",
+                            ifelse(Cause %in% 54:87, "Neoplasms",
+                                   ifelse(Cause %in% 121:155, "CVD",
+                                          ifelse(Cause %in% 242:245, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 256:305,
+                                                        "External causes", "Other disease")))))) %>% droplevels()
+
+dth_classrsn_m_2 <- dth_rsn_m %>%
+  filter(Year %in% 1999:2010) %>%
+  filter(!(Cause %in% c(229:238, 256))) %>%
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:55, "Infection disease",
+                            ifelse(Cause %in% 56:89, "Neoplasms",
+                                   ifelse(Cause %in% c(115:147, 276), "CVD",
+                                          ifelse(Cause %in% 226:228, "Unspecified causes of death",
+                                                 ifelse(Cause %in% c(239:255, 272, 273, 274, 278),
+                                                        "External causes", "Other disease")))))) %>%
+  droplevels()
+
+dth_classrsn_m_1 <- dth_rsn_m %>%
+  filter(Year %in% 1990:1998) %>%
+  filter(Cause %in% 1:175) %>% 
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:44, "Infection disease",
+                            ifelse(Cause %in% 45:67, "Neoplasms",
+                                   ifelse(Cause %in% 84:102, "CVD",
+                                          ifelse(Cause %in% 157:159, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 160:175,
+                                                        "External causes", "Other disease")))))) %>%
+  droplevels()
+
+dth_classrsn_m <- rbind(dth_classrsn_m_1, dth_classrsn_m_2, dth_classrsn_m_3)
+
+
+dth_classrsn_m$std_dr <- apply(dth_classrsn_m[,c(3:21)], 1, function(x) {
+  sum(x * std_pop20)
+})
+
+dth_std_m <- dth_classrsn_m %>% group_by(Year, class_dis)  %>% summarise(std = sum(std_dr))
+```
+
+We decompose our previous graph with standardized death rates by the causes of death. Let's take a look.
+
+```{r, fig.width=11}
+dth_std_m %>% 
+  mutate(class_dis = factor(class_dis, levels = c("CVD", "Other disease",
+                                "External causes", "Neoplasms",
+                                "Infection disease", "Unspecified causes of death"))) %>%
+  ggplot(., aes(Year, std / 1000, fill = class_dis)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(name = "Standardized death rates per 1000 persons") +
+  scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+  labs(subtitle = "Males:")
+```
+
+We can see overall improvements during this year. As for men, the rate of CVD causes of death is getting much lower than it was in the 2000s. The same we can say about external causes of death and neoplasms. But there are no improvements for categories of other diseases and for rather small but still important infectious diseases.
+
+```{r, fig.width=11}
+#### Women
+dth_rsn_f <- merge(dth_rsn_f, test, by.x = "Cause", by.y = "code")
+
+dth_rsn_f[,-c(1,2,22)] <- sapply(dth_rsn_f[,-c(1,2,22)], function(x) {
+  as.numeric(as.character(x))
+})
+
+
+dth_classrsn_f_3 <- dth_rsn_f %>%
+  filter(Year %in% 2011:2018) %>%
+  filter(!(Cause %in% c(246:255, 306))) %>% 
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:53, "Infection disease",
+                            ifelse(Cause %in% 54:87, "Neoplasms",
+                                   ifelse(Cause %in% 121:155, "CVD",
+                                          ifelse(Cause %in% 242:245, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 256:305,
+                                                        "External causes", "Other disease")))))) %>% droplevels()
+
+dth_classrsn_f_2 <- dth_rsn_f %>%
+  filter(Year %in% 1999:2010) %>%
+  filter(!(Cause %in% c(229:238, 256))) %>%
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:55, "Infection disease",
+                            ifelse(Cause %in% 56:89, "Neoplasms",
+                                   ifelse(Cause %in% c(115:147, 276), "CVD",
+                                          ifelse(Cause %in% 226:228, "Unspecified causes of death",
+                                                 ifelse(Cause %in% c(239:255, 272, 273, 274, 278),
+                                                        "External causes", "Other disease")))))) %>%
+  droplevels()
+
+dth_classrsn_f_1 <- dth_rsn_f %>%
+  filter(Year %in% 1990:1998) %>%
+  filter(Cause %in% 1:175) %>%
+  group_by(Year, disease, Cause) %>% 
+  dplyr::summarise_all(sum) %>%
+  ungroup() %>% 
+  mutate(class_dis = ifelse(Cause %in% 1:44, "Infection disease",
+                            ifelse(Cause %in% 45:67, "Neoplasms",
+                                   ifelse(Cause %in% 84:102, "CVD",
+                                          ifelse(Cause %in% 157:159, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 160:175,
+                                                        "External causes", "Other disease")))))) %>%
+  droplevels()
+
+dth_classrsn_f <- rbind(dth_classrsn_f_1, dth_classrsn_f_2, dth_classrsn_f_3)
+
+dth_classrsn_f$std_dr <- apply(dth_classrsn_f[,c(3:21)], 1, function(x) {
+  sum(x * std_pop20)
+})
+
+dth_std_f <- dth_classrsn_f %>% group_by(Year, class_dis)  %>% summarise(std = sum(std_dr))
+
+dth_std_f %>%
+  mutate(class_dis = factor(class_dis, levels = c("CVD", "Other disease",
+                                "External causes", "Neoplasms",
+                                "Infection disease", "Unspecified causes of death"))) %>%
+  ggplot(., aes(Year, std / 1000, fill = class_dis)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(name = "Standardized death rates per 1000 persons") +
+  scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+  labs(subtitle = "Females:")
+```
+
+As for females, the changes are pretty much the same as were mentioned for men.
+
+## Age specific mortality structure by main causes of death in 2018 for males and females.
+
+```{r}
+test_m <- dth_rsn_m %>%
+  filter(Year == 2018) %>% 
+  select(-Year) %>% 
+  group_by(disease) %>% 
+  dplyr::summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(sumVar = rowSums(.[-c(1,2)]),
+         class_dis = ifelse(Cause %in% 1:53, "Infection disease",
+                            ifelse(Cause %in% 54:87, "Neoplasms",
+                                   ifelse(Cause %in% 121:155, "CVD",
+                                          ifelse(Cause %in% 242:245, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 256:305,
+                                                        "External causes", "Other disease")))))) %>% droplevels()
+
+
+
+test_m %>%
+  select(-c(disease, Cause, sumVar)) %>% 
+  reshape2::melt(., id = "class_dis") %>% 
+  mutate(variable = as.numeric(str_replace(variable, "Drac", ""))) %>%
+  mutate(class_dis = factor(class_dis, levels = c("CVD", "Other disease",
+                                "External causes", "Neoplasms",
+                                "Infection disease", "Unspecified causes of death"))) %>% 
+  group_by(class_dis, variable) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  group_by(variable) %>% 
+  mutate(value_ratio = value / sum(value)) %>% 
+  ungroup() %>% 
+  ggplot(., aes(variable, value_ratio, fill = class_dis)) +
+  geom_area(stat = "identity") +
+  scale_x_continuous(name = "Age", labels = scale_pop19, breaks = c(0, 1, 5, seq(10, 85, by = 5)), guide = guide_axis(angle = 90, check.overlap = TRUE)) +
+  scale_y_continuous(name = "Standardized death rates per 1000 persons") +
+  scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+  labs(subtitle = "Males:")
+```
+
+Here we tried to show the main causes of death for every age in 2018. 
+
+```{r}
+causes <- c("CVD", "External causes", "Infection diseases",
+                            "Neoplasms", "Other diseases", "Unspecified causes of death")
+
+lst_test <- dth_classrsn_m %>% 
+  group_by(Year, class_dis) %>% 
+  select(Year, class_dis, contains("Drac")) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  filter(Year %in% c(1990, 2018)) 
+
+lst_test <- split(lst_test, lst_test$Year)
+
+lst_cstep <- lapply(lst_test, function(x) {
+  t_lst <-  x %>% 
+    select(!Year) %>% 
+    transpose() %>% 
+    slice(-1)
+  
+  colnames(t_lst) <- x$class_dis
+  
+  as.matrix(apply(t_lst, 2, as.numeric)) / 1000000
+})
+
+cstep_finale <- stepwise_replacement(func = Mxc2e0abrvec, lst_cstep[["1990"]], lst_cstep[["2018"]],
+                     dims = dim(lst_cstep[["1990"]]), symmetrical = TRUE)
+
+dim(cstep_finale) <- dim(lst_cstep[["1990"]])
+
+colnames(cstep_finale) <- causes
+
+dec_m <- as_tibble(cstep_finale) %>% 
+  mutate(age = c(0,1, seq(5, 85, 5))) %>%
+  reshape2::melt(., id = c("age")) %>% 
+  ggplot(.) +
+    geom_bar(aes(x=as.factor(age),y=value, fill = variable), stat = "identity", size = 2) + 
+    xlab("Age") +
+    ylab("Contribution (years)") +
+    scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+    ggtitle("Contribution to life expectancy difference between 1990 and 2018") +
+    labs(subtitle = "Male:")
+```
+
+
+
+```{r}
+test <- dth_rsn_f %>%
+  filter(Year == 2018) %>% 
+  select(-Year) %>% 
+  group_by(disease) %>% 
+  dplyr::summarise_all(sum) %>% 
+  ungroup() %>% 
+  mutate(sumVar = rowSums(.[-c(1,2)]),
+         class_dis = ifelse(Cause %in% 1:53, "Infection disease",
+                            ifelse(Cause %in% 54:87, "Neoplasms",
+                                   ifelse(Cause %in% 121:155, "CVD",
+                                          ifelse(Cause %in% 242:245, "Unspecified causes of death",
+                                                 ifelse(Cause %in% 256:305,
+                                                        "External causes", "Other disease")))))) %>% droplevels()
+
+
+test %>%
+  select(-c(disease, Cause, sumVar)) %>% 
+  reshape2::melt(., id = "class_dis") %>% 
+  mutate(variable = as.numeric(str_replace(variable, "Drac", ""))) %>%
+  mutate(class_dis = factor(class_dis, levels = c("CVD", "Other disease",
+                                "External causes", "Neoplasms",
+                                "Infection disease","Unspecified causes of death"))) %>% 
+  group_by(class_dis, variable) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  group_by(variable) %>% 
+  mutate(value_ratio = value / sum(value)) %>% 
+  ungroup() %>% 
+  ggplot(., aes(variable, value_ratio, fill = class_dis)) +
+  geom_area(stat = "identity") +
+  scale_x_continuous(name = "Age", labels = scale_pop19, breaks = c(0, 1, 5, seq(10, 85, by = 5)), guide = guide_axis(angle = 90, check.overlap = TRUE)) +
+  scale_y_continuous(name = "Standardized death rates per 1000 persons") +
+  scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+  labs(subtitle = "Females:")
+```
+
+On both of these graphs, we can see a similar picture. Some causes of death are prevailing in younger ages like external causes of death and other diseases, while for elder ages there are more CVD as cause of death and neoplasms. The most strange thing is infectious disease which appears in 20-24 and disappears in 55-59 for both sexes. Without much doubt, we can say that it's an HIV infection. 
+
+## Life expectancy decomposition by causes of death
+
+We now will calculate the difference between life expectancy for two periods and we will try to describe this difference by causes of death which contribute to it.
+
+```{r}
+lst_test <- dth_classrsn_f %>% 
+  group_by(Year, class_dis) %>% 
+  select(Year, class_dis, contains("Drac")) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  filter(Year %in% c(1990, 2018)) 
+
+lst_test <- split(lst_test, lst_test$Year)
+
+lst_cstep <- lapply(lst_test, function(x) {
+  t_lst <-  x %>% 
+    select(!Year) %>% 
+    transpose() %>% 
+    slice(-1)
+  
+  colnames(t_lst) <- x$class_dis
+  
+  as.matrix(apply(t_lst, 2, as.numeric)) / 1000000
+})
+
+cstep_finale <- stepwise_replacement(func = Mxc2e0abrvec, lst_cstep[["1990"]], lst_cstep[["2018"]],
+                     dims = dim(lst_cstep[["1990"]]), symmetrical = TRUE)
+
+dim(cstep_finale) <- dim(lst_cstep[["1990"]])
+
+colnames(cstep_finale) <- causes
+
+dec_f <- as_tibble(cstep_finale) %>% 
+  mutate(age = c(0,1, seq(5, 85, 5))) %>%
+  reshape2::melt(., id = c("age")) %>% 
+  ggplot(.) +
+    geom_bar(aes(x=as.factor(age),y=value, fill = variable), stat = "identity", size = 2) + 
+    xlab("Age") +
+    ylab("Contribution (years)") +
+    scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+    ggtitle("Contribution to life expectancy difference between 1990 and 2018") +
+    labs(subtitle = "Female:")
+
+dec_m
+
+dec_f
+```
+
+From the first two graphs that compare 1990 and 2018. We can see that the highest contribution was at age 0, almost half a year. In the elder ages, we see the increase in life expectancy was due to treating neoplasms diseases and CVD. In the situation of the middle-aged is the most mixed. But generally, we rather decreased in life expectancy of these ages. There is also a large decrease in life expectancy due to other diseases in women elder ages. We discussed it at the seminar and it's likely due to changes in classification. Something that was used classified as CVD is now classified as other diseases. 
+
+I've also chosen to compare 2000 and 2018 as in 2000 was the highest death rate. I think by choosing this point we can test if there any causes of death that were related to the '00s and 10's and was not related to '90s.
+
+```{r}
+causes <- c("CVD", "External causes", "Infection diseases",
+                            "Neoplasms", "Other diseases", "Unspecified causes of death")
+
+lst_test <- dth_classrsn_m %>% 
+  group_by(Year, class_dis) %>% 
+  select(Year, class_dis, contains("Drac")) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  filter(Year %in% c(2000, 2018)) 
+
+lst_test <- split(lst_test, lst_test$Year)
+
+lst_cstep <- lapply(lst_test, function(x) {
+  t_lst <-  x %>% 
+    select(!Year) %>% 
+    transpose() %>% 
+    slice(-1)
+  
+  colnames(t_lst) <- x$class_dis
+  
+  as.matrix(apply(t_lst, 2, as.numeric)) / 1000000
+})
+
+cstep_finale <- stepwise_replacement(func = Mxc2e0abrvec, lst_cstep[["2000"]], lst_cstep[["2018"]],
+                     dims = dim(lst_cstep[["2000"]]), symmetrical = TRUE)
+
+dim(cstep_finale) <- dim(lst_cstep[["2000"]])
+
+colnames(cstep_finale) <- causes
+
+dec_m <- as_tibble(cstep_finale) %>% 
+  mutate(age = c(0,1, seq(5, 85, 5))) %>%
+  reshape2::melt(., id = c("age")) %>% 
+  ggplot(.) +
+    geom_bar(aes(x=as.factor(age),y=value, fill = variable), stat = "identity", size = 2) + 
+    xlab("Age") +
+    ylab("Contribution (years)") +
+    scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+    ggtitle("Contribution to life expectancy difference between 2000 and 2018") +
+    labs(subtitle = "Male:")
+```
+
+
+```{r}
+lst_test <- dth_classrsn_f %>% 
+  group_by(Year, class_dis) %>% 
+  select(Year, class_dis, contains("Drac")) %>% 
+  summarise_all(sum) %>% 
+  ungroup() %>% 
+  filter(Year %in% c(2000, 2018)) 
+
+lst_test <- split(lst_test, lst_test$Year)
+
+lst_cstep <- lapply(lst_test, function(x) {
+  t_lst <-  x %>% 
+    select(!Year) %>% 
+    transpose() %>% 
+    slice(-1)
+  
+  colnames(t_lst) <- x$class_dis
+  
+  as.matrix(apply(t_lst, 2, as.numeric)) / 1000000
+})
+
+cstep_finale <- stepwise_replacement(func = Mxc2e0abrvec, lst_cstep[["2000"]], lst_cstep[["2018"]],
+                     dims = dim(lst_cstep[["2000"]]), symmetrical = TRUE)
+
+dim(cstep_finale) <- dim(lst_cstep[["2000"]])
+
+colnames(cstep_finale) <- causes
+
+dec_f <- as_tibble(cstep_finale) %>% 
+  mutate(age = c(0,1, seq(5, 85, 5))) %>%
+  reshape2::melt(., id = c("age")) %>% 
+  ggplot(.) +
+    geom_bar(aes(x=as.factor(age),y=value, fill = variable), stat = "identity", size = 2) + 
+    xlab("Age") +
+    ylab("Contribution (years)") +
+    scale_fill_brewer(name = "Causes of death:", palette = "Dark2") +
+    ggtitle("Contribution to life expectancy difference between 2000 and 2018") +
+    labs(subtitle = "Female:")
+
+dec_m
+
+dec_f
+```
+
+From these graphs, we see that we largely improved and increased our life expectancy from 2000. The most impressive for me is how large the category of external causes of death was for youth back in the days. However, two types of diseases are specific to certain ages and negatively contribute to life expectancy now. Firstly, it's infection diseases that are specific for ages 30-44 for both sexes and category other diseases for 70+, especially for women. Below you can find a bit more information on these diseases and the number.
+
+
+```{r}
+knitr::kable(test_m[,c(1,8:15)] %>% arrange(desc(Drac25)) %>% head(5), caption = "Most common deaths for middle aged men.(Table was formed by descending order in number of death for age group 25-29). Well, I mostly wanted to highlight HIV")
+```
+
+```{r}
+knitr::kable(test[,c(1,16:22)] %>% arrange(desc(Drac85)) %>% head(5), caption = "Most common deaths for elder women.(Table was formed by descending order in number of death for age group 85+)")
+```
+
+
+
+
+
+
+
+
+
